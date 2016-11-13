@@ -169,14 +169,15 @@ type Proxier struct {
 	haveReceivedEndpointsUpdate bool // true once we've seen an OnEndpointsUpdate event
 
 	// These are effectively const and do not need the mutex to be held.
-	syncPeriod     time.Duration
-	iptables       utiliptables.Interface
-	masqueradeAll  bool
-	masqueradeMark string
-	exec           utilexec.Interface
-	clusterCIDR    string
-	hostname       string
-	nodeIP         net.IP
+	syncPeriod                        time.Duration
+	iptables                          utiliptables.Interface
+	masqueradeAll                     bool
+	masqueradeMark                    string
+	exec                              utilexec.Interface
+	clusterCIDR                       string
+	hostname                          string
+	nodeIP                            net.IP
+	disableExternalIPSecurityMeasures bool
 }
 
 type localPort struct {
@@ -202,7 +203,8 @@ var _ proxy.ProxyProvider = &Proxier{}
 // An error will be returned if iptables fails to update or acquire the initial lock.
 // Once a proxier is created, it will keep iptables up to date in the background and
 // will not terminate if a particular iptables call fails.
-func NewProxier(ipt utiliptables.Interface, sysctl utilsysctl.Interface, exec utilexec.Interface, syncPeriod time.Duration, masqueradeAll bool, masqueradeBit int, clusterCIDR string, hostname string, nodeIP net.IP) (*Proxier, error) {
+func NewProxier(ipt utiliptables.Interface, sysctl utilsysctl.Interface, exec utilexec.Interface, syncPeriod time.Duration, masqueradeAll bool, masqueradeBit int, clusterCIDR string, hostname string, nodeIP net.IP, disableExternalIPSecurityMeasures bool) (*Proxier, error) {
+
 	// Set the route_localnet sysctl we need for
 	if err := sysctl.SetSysctl(sysctlRouteLocalnet, 1); err != nil {
 		return nil, fmt.Errorf("can't set sysctl %s: %v", sysctlRouteLocalnet, err)
@@ -241,6 +243,7 @@ func NewProxier(ipt utiliptables.Interface, sysctl utilsysctl.Interface, exec ut
 		clusterCIDR:    clusterCIDR,
 		hostname:       hostname,
 		nodeIP:         nodeIP,
+		disableExternalIPSecurityMeasures: disableExternalIPSecurityMeasures,
 	}, nil
 }
 
@@ -963,14 +966,19 @@ func (proxier *Proxier) syncProxyRules() {
 			// nor from a local process to be forwarded to the service.
 			// This rule roughly translates to "all traffic from off-machine".
 			// This is imperfect in the face of network plugins that might not use a bridge, but we can revisit that later.
-			externalTrafficOnlyArgs := append(args,
-				"-m", "physdev", "!", "--physdev-is-in",
-				"-m", "addrtype", "!", "--src-type", "LOCAL")
-			writeLine(natRules, append(externalTrafficOnlyArgs, "-j", string(svcChain))...)
-			dstLocalOnlyArgs := append(args, "-m", "addrtype", "--dst-type", "LOCAL")
-			// Allow traffic bound for external IPs that happen to be recognized as local IPs to stay local.
-			// This covers cases like GCE load-balancers which get added to the local routing table.
-			writeLine(natRules, append(dstLocalOnlyArgs, "-j", string(svcChain))...)
+			if !proxier.disableExternalIPSecurityMeasures {
+				externalTrafficOnlyArgs := append(args,
+					"-m", "physdev", "!", "--physdev-is-in",
+					"-m", "addrtype", "!", "--src-type", "LOCAL")
+				writeLine(natRules, append(externalTrafficOnlyArgs, "-j", string(svcChain))...)
+
+				dstLocalOnlyArgs := append(args, "-m", "addrtype", "--dst-type", "LOCAL")
+				// Allow traffic bound for external IPs that happen to be recognized as local IPs to stay local.
+				// This covers cases like GCE load-balancers which get added to the local routing table.
+				writeLine(natRules, append(dstLocalOnlyArgs, "-j", string(svcChain))...)
+			} else {
+				writeLine(natRules, append(args, "-j", string(svcChain))...)
+			}
 		}
 
 		// Capture load-balancer ingress.
