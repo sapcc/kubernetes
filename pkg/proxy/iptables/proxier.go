@@ -202,18 +202,19 @@ type Proxier struct {
 	throttle                  flowcontrol.RateLimiter
 
 	// These are effectively const and do not need the mutex to be held.
-	syncPeriod     time.Duration
-	minSyncPeriod  time.Duration
-	iptables       utiliptables.Interface
-	masqueradeAll  bool
-	masqueradeMark string
-	exec           utilexec.Interface
-	clusterCIDR    string
-	hostname       string
-	nodeIP         net.IP
-	portMapper     portOpener
-	recorder       record.EventRecorder
-	healthChecker  healthcheck.Server
+	syncPeriod                        time.Duration
+	minSyncPeriod                     time.Duration
+	iptables                          utiliptables.Interface
+	masqueradeAll                     bool
+	masqueradeMark                    string
+	exec                              utilexec.Interface
+	clusterCIDR                       string
+	hostname                          string
+	nodeIP                            net.IP
+	portMapper                        portOpener
+	recorder                          record.EventRecorder
+	healthChecker                     healthcheck.Server
+	disableExternalIPSecurityMeasures bool
 }
 
 type localPort struct {
@@ -264,6 +265,7 @@ func NewProxier(ipt utiliptables.Interface,
 	hostname string,
 	nodeIP net.IP,
 	recorder record.EventRecorder,
+	disableExternalIPSecurityMeasures bool,
 ) (*Proxier, error) {
 	// check valid user input
 	if minSyncPeriod > syncPeriod {
@@ -309,22 +311,23 @@ func NewProxier(ipt utiliptables.Interface,
 	}
 
 	return &Proxier{
-		serviceMap:     make(proxyServiceMap),
-		endpointsMap:   make(proxyEndpointMap),
-		portsMap:       make(map[localPort]closeable),
-		syncPeriod:     syncPeriod,
-		minSyncPeriod:  minSyncPeriod,
-		throttle:       throttle,
-		iptables:       ipt,
-		masqueradeAll:  masqueradeAll,
-		masqueradeMark: masqueradeMark,
-		exec:           exec,
-		clusterCIDR:    clusterCIDR,
-		hostname:       hostname,
-		nodeIP:         nodeIP,
-		portMapper:     &listenPortOpener{},
-		recorder:       recorder,
-		healthChecker:  healthChecker,
+		serviceMap:                        make(proxyServiceMap),
+		endpointsMap:                      make(proxyEndpointMap),
+		portsMap:                          make(map[localPort]closeable),
+		syncPeriod:                        syncPeriod,
+		minSyncPeriod:                     minSyncPeriod,
+		throttle:                          throttle,
+		iptables:                          ipt,
+		masqueradeAll:                     masqueradeAll,
+		masqueradeMark:                    masqueradeMark,
+		exec:                              exec,
+		clusterCIDR:                       clusterCIDR,
+		hostname:                          hostname,
+		nodeIP:                            nodeIP,
+		portMapper:                        &listenPortOpener{},
+		recorder:                          recorder,
+		healthChecker:                     healthChecker,
+		disableExternalIPSecurityMeasures: disableExternalIPSecurityMeasures,
 	}, nil
 }
 
@@ -962,14 +965,19 @@ func (proxier *Proxier) syncProxyRules() {
 			// nor from a local process to be forwarded to the service.
 			// This rule roughly translates to "all traffic from off-machine".
 			// This is imperfect in the face of network plugins that might not use a bridge, but we can revisit that later.
-			externalTrafficOnlyArgs := append(args,
-				"-m", "physdev", "!", "--physdev-is-in",
-				"-m", "addrtype", "!", "--src-type", "LOCAL")
-			writeLine(natRules, append(externalTrafficOnlyArgs, "-j", string(svcChain))...)
-			dstLocalOnlyArgs := append(args, "-m", "addrtype", "--dst-type", "LOCAL")
-			// Allow traffic bound for external IPs that happen to be recognized as local IPs to stay local.
-			// This covers cases like GCE load-balancers which get added to the local routing table.
-			writeLine(natRules, append(dstLocalOnlyArgs, "-j", string(svcChain))...)
+			if !proxier.disableExternalIPSecurityMeasures {
+				externalTrafficOnlyArgs := append(args,
+					"-m", "physdev", "!", "--physdev-is-in",
+					"-m", "addrtype", "!", "--src-type", "LOCAL")
+				writeLine(natRules, append(externalTrafficOnlyArgs, "-j", string(svcChain))...)
+
+				dstLocalOnlyArgs := append(args, "-m", "addrtype", "--dst-type", "LOCAL")
+				// Allow traffic bound for external IPs that happen to be recognized as local IPs to stay local.
+				// This covers cases like GCE load-balancers which get added to the local routing table.
+				writeLine(natRules, append(dstLocalOnlyArgs, "-j", string(svcChain))...)
+			} else {
+				writeLine(natRules, append(args, "-j", string(svcChain))...)
+			}
 		}
 
 		// Capture load-balancer ingress.

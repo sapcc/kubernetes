@@ -239,6 +239,7 @@ func NewProxyServerDefault(config *options.ProxyServerConfig) (*ProxyServer, err
 			hostname,
 			getNodeIP(client, hostname),
 			recorder,
+			config.DisableExternalIPSecurityMeasures,
 		)
 		if err != nil {
 			glog.Fatalf("Unable to create proxier: %v", err)
