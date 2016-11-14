@@ -874,6 +874,8 @@ func (proxier *Proxier) syncProxyRules() {
 					"-m", "physdev", "!", "--physdev-is-in",
 					"-m", "addrtype", "!", "--src-type", "LOCAL")
 				writeLine(natRules, append(externalTrafficOnlyArgs, "-j", string(svcChain))...)
+			} else {
+				writeLine(natRules, string(svcChain))...)
 			}
 			dstLocalOnlyArgs := append(args, "-m", "addrtype", "--dst-type", "LOCAL")
 			// Allow traffic bound for external IPs that happen to be recognized as local IPs to stay local.
