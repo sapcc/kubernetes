@@ -958,8 +958,12 @@ func (proxier *Proxier) syncProxyRules() {
 				"-d", fmt.Sprintf("%s/32", externalIP),
 				"--dport", fmt.Sprintf("%d", svcInfo.port),
 			}
-			// We have to SNAT packets to external IPs.
-			writeLine(natRules, append(args, "-j", string(KubeMarkMasqChain))...)
+			chosenChain := svcXlbChain
+			if !svcInfo.onlyNodeLocalEndpoints {
+				// We have to SNAT packets to external IPs.
+				writeLine(natRules, append(args, "-j", string(KubeMarkMasqChain))...)
+				chosenChain = svcChain
+			}
 
 			// Allow traffic for external IPs that does not come from a bridge (i.e. not from a container)
 			// nor from a local process to be forwarded to the service.
@@ -969,14 +973,14 @@ func (proxier *Proxier) syncProxyRules() {
 				externalTrafficOnlyArgs := append(args,
 					"-m", "physdev", "!", "--physdev-is-in",
 					"-m", "addrtype", "!", "--src-type", "LOCAL")
-				writeLine(natRules, append(externalTrafficOnlyArgs, "-j", string(svcChain))...)
+				writeLine(natRules, append(externalTrafficOnlyArgs, "-j", string(chosenChain))...)
 
 				dstLocalOnlyArgs := append(args, "-m", "addrtype", "--dst-type", "LOCAL")
 				// Allow traffic bound for external IPs that happen to be recognized as local IPs to stay local.
 				// This covers cases like GCE load-balancers which get added to the local routing table.
-				writeLine(natRules, append(dstLocalOnlyArgs, "-j", string(svcChain))...)
+				writeLine(natRules, append(dstLocalOnlyArgs, "-j", string(chosenChain))...)
 			} else {
-				writeLine(natRules, append(args, "-j", string(svcChain))...)
+				writeLine(natRules, append(args, "-j", string(chosenChain))...)
 			}
 		}
 
