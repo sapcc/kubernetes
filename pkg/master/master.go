@@ -726,6 +726,7 @@ func (m *Master) InstallThirdPartyResource(rsrc *extensions.ThirdPartyResource) 
 	apiserver.AddGroupWebService(api.Codecs, m.HandlerContainer, path, apiGroup)
 
 	m.addThirdPartyResourceStorage(path, plural.Resource, thirdparty.Storage[plural.Resource].(*thirdpartyresourcedataetcd.REST), apiGroup)
+	registered.AddThirdPartyAPIGroupVersions(unversioned.GroupVersion{Group: group, Version: rsrc.Versions[0].Name})
 	apiserver.InstallServiceErrorHandler(api.Codecs, m.HandlerContainer, m.NewRequestInfoResolver(), []string{thirdparty.GroupVersion.String()})
 	return nil
 }
