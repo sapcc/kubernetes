@@ -201,7 +201,7 @@ func newServiceInfo(svcPortName proxy.ServicePortName, port *api.ServicePort, se
 	// this enables the reject rule on external ip traffic once it's endpoints are gone by default
 	rejectExternalIPTraffic := true
 	// test if this service wants to be excluded
-	if service.Annotations[ServiceAnnotationRejectTrafficOnExternalIP] == "true" {
+	if service.Annotations[ServiceAnnotationRejectTrafficOnExternalIP] == "false" {
 		rejectExternalIPTraffic = false
 	}
 
