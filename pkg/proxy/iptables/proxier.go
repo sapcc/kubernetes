@@ -55,6 +55,8 @@ import (
 	utilversion "k8s.io/kubernetes/pkg/util/version"
 )
 
+const ServiceAnnotationRejectTrafficOnExternalIP = "service.alpha.kubernetes.io/reject-traffic-on-external-ip"
+
 const (
 	// iptablesMinVersion is the minimum version of iptables for which we will use the Proxier
 	// from this package instead of the userspace Proxier.  While most of the
@@ -147,6 +149,7 @@ type serviceInfo struct {
 	externalIPs              []string
 	loadBalancerSourceRanges []string
 	onlyNodeLocalEndpoints   bool
+	rejectExternalIPTraffic  bool
 	healthCheckNodePort      int
 	// The following fields are computed and stored for performance reasons.
 	serviceNameString        string
@@ -194,6 +197,14 @@ func newServiceInfo(svcPortName proxy.ServicePortName, port *api.ServicePort, se
 		apiservice.RequestsOnlyLocalTraffic(service) {
 		onlyNodeLocalEndpoints = true
 	}
+
+	// this enables the reject rule on external ip traffic once it's endpoints are gone by default
+	rejectExternalIPTraffic := true
+	// test if this service wants to be excluded
+	if service.Annotations[ServiceAnnotationRejectTrafficOnExternalIP] == "true" {
+		rejectExternalIPTraffic = false
+	}
+
 	info := &serviceInfo{
 		clusterIP: net.ParseIP(service.Spec.ClusterIP),
 		port:      int(port.Port),
@@ -206,6 +217,7 @@ func newServiceInfo(svcPortName proxy.ServicePortName, port *api.ServicePort, se
 		externalIPs:              make([]string, len(service.Spec.ExternalIPs)),
 		loadBalancerSourceRanges: make([]string, len(service.Spec.LoadBalancerSourceRanges)),
 		onlyNodeLocalEndpoints:   onlyNodeLocalEndpoints,
+		rejectExternalIPTraffic:  rejectExternalIPTraffic,
 	}
 	copy(info.loadBalancerSourceRanges, service.Spec.LoadBalancerSourceRanges)
 	copy(info.externalIPs, service.Spec.ExternalIPs)
@@ -1272,7 +1284,7 @@ func (proxier *Proxier) syncProxyRules() {
 
 			// If the service has no endpoints then reject packets coming via externalIP
 			// Install ICMP Reject rule in filter table for destination=externalIP and dport=svcport
-			if len(proxier.endpointsMap[svcName]) == 0 {
+			if len(proxier.endpointsMap[svcName]) == 0 && proxier.rejectExternalIPTraffic {
 				writeLine(proxier.filterRules,
 					"-A", string(kubeServicesChain),
 					"-m", "comment", "--comment", fmt.Sprintf(`"%s has no endpoints"`, svcNameString),
