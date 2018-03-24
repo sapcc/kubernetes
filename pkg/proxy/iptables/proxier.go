@@ -55,6 +55,8 @@ import (
 	utilexec "k8s.io/utils/exec"
 )
 
+const ServiceAnnotationRejectTrafficOnExternalIP = "service.alpha.kubernetes.io/reject-traffic-on-external-ip"
+
 const (
 	// iptablesMinVersion is the minimum version of iptables for which we will use the Proxier
 	// from this package instead of the userspace Proxier.  While most of the
@@ -150,6 +152,7 @@ type serviceInfo struct {
 	externalIPs              []string
 	loadBalancerSourceRanges []string
 	onlyNodeLocalEndpoints   bool
+	rejectExternalIPTraffic  bool
 	healthCheckNodePort      int
 	// The following fields are computed and stored for performance reasons.
 	serviceNameString        string
@@ -197,11 +200,20 @@ func newServiceInfo(svcPortName proxy.ServicePortName, port *api.ServicePort, se
 		apiservice.RequestsOnlyLocalTraffic(service) {
 		onlyNodeLocalEndpoints = true
 	}
+
 	var stickyMaxAgeSeconds int
 	if service.Spec.SessionAffinity == api.ServiceAffinityClientIP {
 		// Kube-apiserver side guarantees SessionAffinityConfig won't be nil when session affinity type is ClientIP
 		stickyMaxAgeSeconds = int(*service.Spec.SessionAffinityConfig.ClientIP.TimeoutSeconds)
 	}
+
+	// this enables the reject rule on external ip traffic once it's endpoints are gone by default
+	rejectExternalIPTraffic := true
+	// test if this service wants to be excluded
+	if service.Annotations[ServiceAnnotationRejectTrafficOnExternalIP] == "false" {
+		rejectExternalIPTraffic = false
+	}
+
 	info := &serviceInfo{
 		clusterIP: net.ParseIP(service.Spec.ClusterIP),
 		port:      int(port.Port),
@@ -214,6 +226,7 @@ func newServiceInfo(svcPortName proxy.ServicePortName, port *api.ServicePort, se
 		externalIPs:              make([]string, len(service.Spec.ExternalIPs)),
 		loadBalancerSourceRanges: make([]string, len(service.Spec.LoadBalancerSourceRanges)),
 		onlyNodeLocalEndpoints:   onlyNodeLocalEndpoints,
+		rejectExternalIPTraffic:  rejectExternalIPTraffic,
 	}
 
 	copy(info.loadBalancerSourceRanges, service.Spec.LoadBalancerSourceRanges)
@@ -1286,7 +1299,7 @@ func (proxier *Proxier) syncProxyRules() {
 
 			// If the service has no endpoints then reject packets coming via externalIP
 			// Install ICMP Reject rule in filter table for destination=externalIP and dport=svcport
-			if len(proxier.endpointsMap[svcName]) == 0 {
+			if len(proxier.endpointsMap[svcName]) == 0 && svcInfo.rejectExternalIPTraffic {
 				writeLine(proxier.filterRules,
 					"-A", string(kubeServicesChain),
 					"-m", "comment", "--comment", fmt.Sprintf(`"%s has no endpoints"`, svcNameString),
@@ -1619,12 +1632,12 @@ func (proxier *Proxier) syncProxyRules() {
 	// If the masqueradeMark has been added then we want to forward that same
 	// traffic, this allows NodePort traffic to be forwarded even if the default
 	// FORWARD policy is not accept.
-	writeLine(proxier.filterRules,
-		"-A", string(kubeForwardChain),
-		"-m", "comment", "--comment", `"kubernetes forwarding rules"`,
-		"-m", "mark", "--mark", proxier.masqueradeMark,
-		"-j", "ACCEPT",
-	)
+	//writeLine(proxier.filterRules,
+	//  "-A", string(kubeForwardChain),
+	//  "-m", "comment", "--comment", `"kubernetes forwarding rules"`,
+	//  "-m", "mark", "--mark", proxier.masqueradeMark,
+	//  "-j", "ACCEPT",
+	//)
 
 	// The following rules can only be set if clusterCIDR has been defined.
 	if len(proxier.clusterCIDR) != 0 {
