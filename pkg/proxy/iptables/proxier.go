@@ -1284,7 +1284,7 @@ func (proxier *Proxier) syncProxyRules() {
 
 			// If the service has no endpoints then reject packets coming via externalIP
 			// Install ICMP Reject rule in filter table for destination=externalIP and dport=svcport
-			if len(proxier.endpointsMap[svcName]) == 0 && proxier.rejectExternalIPTraffic {
+			if len(proxier.endpointsMap[svcName]) == 0 && svcInfo.rejectExternalIPTraffic {
 				writeLine(proxier.filterRules,
 					"-A", string(kubeServicesChain),
 					"-m", "comment", "--comment", fmt.Sprintf(`"%s has no endpoints"`, svcNameString),
