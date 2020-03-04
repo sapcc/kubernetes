@@ -479,6 +479,13 @@ const (
 	//
 	// Enable support for specifying an existing PVC as a DataSource
 	VolumePVCDataSource featuregate.Feature = "VolumePVCDataSource"
+	// owner: @freehan
+	// GA: v1.18
+	//
+	// Enable ExternalTrafficPolicy for Service ExternalIPs.
+	// This is for bug fix #69811
+	ExternalPolicyForExternalIP featuregate.Feature = "ExternalPolicyForExternalIP"
+
 )
 
 func init() {
@@ -559,6 +566,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	LocalStorageCapacityIsolationFSQuotaMonitoring: {Default: false, PreRelease: featuregate.Alpha},
 	NonPreemptingPriority:                          {Default: false, PreRelease: featuregate.Alpha},
 	VolumePVCDataSource:                            {Default: false, PreRelease: featuregate.Alpha},
+	ExternalPolicyForExternalIP:                    {Default: false, PreRelease: featuregate.GA}, // remove in 1.19
 
 	// inherited features from generic apiserver, relisted here to get a conflict if it is changed
 	// unintentionally on either side:
