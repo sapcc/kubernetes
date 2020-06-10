@@ -38,7 +38,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/apimachinery/pkg/util/wait"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/proxy"
 	"k8s.io/kubernetes/pkg/proxy/healthcheck"
 	"k8s.io/kubernetes/pkg/proxy/metrics"
@@ -927,7 +929,7 @@ func (proxier *Proxier) syncProxyRules() {
 
 				destChain := svcXlbChain
 				// We have to SNAT packets to external IPs if externalTrafficPolicy is cluster.
-				if !(utilfeature.DefaultFeatureGate.Enabled(features.ExternalPolicyForExternalIP) && svcInfo.OnlyNodeLocalEndpoints()) {
+				if !(utilfeature.DefaultFeatureGate.Enabled(features.ExternalPolicyForExternalIP) && svcInfo.OnlyNodeLocalEndpoints) {
 					destChain = svcChain
 					writeLine(proxier.natRules, append(args, "-j", string(KubeMarkMasqChain))...)
 				}
